@@ -45,7 +45,7 @@ class DnsApiComToCloudflare(object):
         parser_fetch.add_argument(
             "--overwrite",
             action="store_true",
-            help="Overwrite existing files",
+            help="Overwrite existing files"
         )
 
         parser_sync = subparsers.add_parser("sync", help="Synchronize records")
@@ -53,6 +53,11 @@ class DnsApiComToCloudflare(object):
             "--dry-run",
             action="store_true",
             help="Dry-run (do not change any zone data on CloudFlare)"
+        )
+        parser_sync.add_argument(
+            "--delete-unknown-zones",
+            action="store_true",
+            help="Delete unknown zones instead of ignoring them"
         )
 
         self.args = parser.parse_args()
@@ -165,9 +170,13 @@ class DnsApiComToCloudflare(object):
         return True
 
     def sync(self):
+        all_entries = set()
+
         for entry in os.listdir(self.args.zones_directory):
             if entry.startswith("."):
                 continue
+
+            all_entries.add(entry.lower())
 
             zones = self.cloudflare.zones.get(params={"name": entry.lower()})
             if zones:
@@ -210,6 +219,15 @@ class DnsApiComToCloudflare(object):
                     print("--dry-run: Not sending record %s %s" % (lrecord["name"], lrecord["type"]))
                     continue
                 self.cloudflare.zones.dns_records.post(zone["id"], data=lrecord)
+
+        if self.args.delete_unknown_zones:
+            for zone in self.cloudflare.zones.get():
+                if zone["name"] in all_entries:
+                    continue
+                if self.args.dry_run:
+                    print("--dry-run: Not deleting zone %s" % zone["name"])
+                    continue
+                self.cloudflare.zones.delete(zone["id"])
 
     def main(self):
         self.parse_args()
